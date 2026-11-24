@@ -73,12 +73,12 @@ export function CriteriaList({ criteria, metrics, phase }) {
             </dd>
           </div>
           <div>
-            <dt>Smile</dt>
-            <dd>{Math.round(metrics.happy * 100)}%</dd>
-          </div>
-          <div>
             <dt>Detector</dt>
             <dd>{metrics.confidence.toFixed(2)}</dd>
+          </div>
+          <div>
+            <dt>FPS</dt>
+            <dd>{metrics.fps ? metrics.fps.toFixed(0) : '—'}</dd>
           </div>
         </dl>
       )}

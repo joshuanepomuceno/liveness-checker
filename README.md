@@ -15,8 +15,10 @@ The meter scores 0–100 and passes at **80**:
 | Part | Points | What is checked |
 | --- | --- | --- |
 | Passive criteria | 40 | One face in view · face width 20–70% of frame · centre within 18% · mean face luminance 60–215 · Laplacian sharpness ≥ 22 · movement ≤ 3.5% of face width per frame |
-| Active challenges | 50 | Blink (eye aspect ratio drops below 72% of the open-eye baseline, then recovers) · turn left / right (estimated yaw ≥ 18°) · smile (expression ≥ 0.75). You must face the camera before each challenge counts. |
-| Frontal capture | 10 | Samples taken only while every criterion passes and yaw is within 10° |
+| Active challenges | 50 | Blink (eye aspect ratio drops below 80% of your learned open-eye level, then recovers to 90%) · turn left / right (≥ 18° from your resting pose) · smile (expression ≥ 0.75). Turns start from your resting pose and smiles from a relaxed face. |
+| Frontal capture | 10 | Samples taken only while every criterion passes, eyes are open and the head is within 10° of the resting pose |
+
+The resting pose is learned from the first good frames (up to 25° off-axis), so a camera mounted beside the screen, as on most tablets, doesn't count as a turned head. During the blink challenge an eye-openness bar shows the live reading against the blink line, and the readouts include the detection frame rate (FPS).
 
 A session times out after 45 seconds. All thresholds live in `src/lib/liveness.js` (`T`) and the match limit in `src/lib/registry.js` (`MATCH_THRESHOLD`).
 

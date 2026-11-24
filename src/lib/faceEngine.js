@@ -24,13 +24,16 @@ export function loadModels() {
   return loadPromise;
 }
 
-const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 });
+const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 256, scoreThreshold: 0.45 });
 
 /**
- * Detects every face in the frame with landmarks and expressions.
- * The 128-d descriptor is only computed when asked, since it is the costly step.
+ * Detects every face in the frame with landmarks. Expressions and the 128-d
+ * descriptor are extra network passes, so they run only when asked for; this
+ * keeps the frame rate up on tablets and phones, where blinks are easy to miss.
  */
-export function detectFaces(input, withDescriptor = false) {
-  const chain = faceapi.detectAllFaces(input, detectorOptions).withFaceLandmarks().withFaceExpressions();
-  return withDescriptor ? chain.withFaceDescriptors() : chain;
+export function detectFaces(input, { expressions = false, descriptor = false } = {}) {
+  let chain = faceapi.detectAllFaces(input, detectorOptions).withFaceLandmarks();
+  if (expressions) chain = chain.withFaceExpressions();
+  if (descriptor) chain = chain.withFaceDescriptors();
+  return chain;
 }
