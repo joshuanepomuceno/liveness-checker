@@ -12,7 +12,7 @@ const SCALE_MAX = 1; // distance axis shown on the match bar
 export default function VerifyPage({ registry, navigate }) {
   const videoRef = useRef(null);
   const overlayRef = useRef(null);
-  const { state, start, reset } = useLivenessSession({ videoRef, overlayRef, samplesNeeded: SAMPLES });
+  const { state, start, reset, swap } = useLivenessSession({ videoRef, overlayRef, samplesNeeded: SAMPLES });
   const busy = state.phase === 'loading' || state.phase === 'running';
   const empty = registry.people.length === 0;
 
@@ -30,6 +30,7 @@ export default function VerifyPage({ registry, navigate }) {
           videoRef={videoRef}
           overlayRef={overlayRef}
           state={state}
+          onSwap={swap}
           idleTitle="Verify a person"
           idleText="Each scan asks for two random challenges, then compares the live face against everyone in the registry."
         />

@@ -23,6 +23,9 @@ export const T = {
 
 export const SESSION_MS = 60000;
 
+/** After this long on the blink step, offer another challenge instead. */
+export const BLINK_HELP_MS = 8000;
+
 export const CHALLENGES = {
   blink: { label: 'Blink', hint: 'Close both eyes for a moment, then open them' },
   circle: { label: 'Head circle', hint: 'Slowly move your head in a full circle' },
@@ -101,8 +104,9 @@ export function eyeContrast(video, landmarks) {
     const w = Math.max(...xs) - Math.min(...xs);
     const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
     const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
-    const bw = w * 1.3;
-    const bh = bw / 2;
+    // Tight crop on the eye itself so glasses frames above and below stay out.
+    const bw = w * 1.1;
+    const bh = bw * 0.4;
     eyeCtx.drawImage(video, cx - bw / 2, cy - bh / 2, bw, bh, 0, 0, 32, 16);
     const { data } = eyeCtx.getImageData(0, 0, 32, 16);
     let sum = 0;
@@ -124,7 +128,8 @@ const p80 = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.leng
 /**
  * Blink detector. It learns the person's normal open-eye shape (EAR) and eye
  * contrast from recent frames (80th percentile, so half-closed frames don't drag
- * it down) and fuses them into one "openness" where 1 means normal open eyes.
+ * it down) and combines them into one "openness" where 1 means normal open eyes;
+ * a clear drop in either signal alone is enough, so glasses don't hide blinks.
  * A single frame below T.blinkClose then one above T.blinkOpen is a blink, which
  * keeps working at the low frame rates of tablets.
  */
@@ -140,7 +145,14 @@ export function createBlinkTracker() {
     update(ear, contrast) {
       if (ready()) {
         const earPart = ear / earBase;
-        openness = conBase > 1 ? 0.5 * earPart + 0.5 * (contrast / conBase) : earPart;
+        if (conBase > 1) {
+          const conPart = contrast / conBase;
+          // Either signal can show the blink on its own: glasses keep eye contrast
+          // high, and small faces keep the landmark shape flat.
+          openness = Math.min(0.5 * earPart + 0.5 * conPart, earPart * 1.05, conPart * 1.135);
+        } else {
+          openness = earPart;
+        }
       }
       if (!closed && (!ready() || openness >= T.blinkClose)) {
         earHist.push(ear);

@@ -15,7 +15,7 @@ The meter scores 0–100 and passes at **80**:
 | Part | Points | What is checked |
 | --- | --- | --- |
 | Passive criteria | 40 | One face in view · face width 20–70% of frame · centre within 18% · mean face luminance 60–215 · Laplacian sharpness ≥ 22 · movement ≤ 0.5 face widths per second |
-| Active challenges | 50 | **Blink**: eye openness, a blend of eye shape (EAR) and eye-area contrast relative to your own open eyes, drops below 84% and recovers above 92% · **Head circle**: your head's yaw and pitch point in at least 6 of 8 directions, each at least 8° from your resting pose · **Smile**: expression ≥ 0.75 |
+| Active challenges | 50 | **Blink**: eye openness drops below 84% of your own open eyes and recovers above 92%. Openness combines eye shape (EAR) and eye-area contrast, and a clear drop in either alone counts, so glasses don't hide blinks. After 8 s on the blink step, a button offers a smile (or head circle) instead · **Head circle**: your head's yaw and pitch point in at least 6 of 8 directions, each at least 8° from your resting pose · **Smile**: expression ≥ 0.75 |
 | Frontal capture | 10 | Samples taken only while every criterion passes, eyes are open and the head is within 12° yaw and 15° pitch of the resting pose |
 
 Only face count, distance and lighting must pass for a challenge to count. Centring, sharpness and stillness are required for the frontal capture.

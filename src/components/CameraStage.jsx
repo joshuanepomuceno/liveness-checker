@@ -63,7 +63,7 @@ function CircleGuide({ visited, metrics }) {
   );
 }
 
-export default function CameraStage({ videoRef, overlayRef, state, idleTitle, idleText }) {
+export default function CameraStage({ videoRef, overlayRef, state, idleTitle, idleText, onSwap }) {
   const { phase, message, remaining, stage, samples, samplesNeeded, metrics, challenges, circle } = state;
   const blinkActive = challenges.some((c) => c.active && c.key === 'blink');
   const circleActive = challenges.some((c) => c.active && c.key === 'circle');
@@ -119,6 +119,14 @@ export default function CameraStage({ videoRef, overlayRef, state, idleTitle, id
             </div>
             <div className="stage__prompt">
               <p aria-live="polite">{message}</p>
+              {state.canSwap && onSwap && (
+                <div className="stage__help">
+                  <span>Blink not registering? Glasses and glare can hide it.</span>
+                  <button type="button" className="stage__help-btn" onClick={onSwap}>
+                    Use a {state.challenges.some((c) => c.key === 'smile') ? 'head circle' : 'smile'} instead
+                  </button>
+                </div>
+              )}
               {blinkActive && metrics && metrics.blinkReady && <EyeMeter metrics={metrics} />}
             </div>
           </>
