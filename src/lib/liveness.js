@@ -12,14 +12,16 @@ export const T = {
   yawTurn: 18, // degrees needed for a head-turn challenge
   yawFront: 10, // degrees allowed for a frontal pose
   smile: 0.75, // "happy" expression probability
-  blinkDrop: 0.72, // EAR must fall below this share of the open-eye baseline
+  blinkClose: 0.8, // EAR below this share of the open-eye baseline counts as closed
+  blinkOpen: 0.9, // ...and back above this share counts as reopened
+  yawBaseMax: 25, // most off-axis resting pose accepted (side-mounted tablet cameras)
   livePass: 80, // liveness score needed to pass
 };
 
 export const SESSION_MS = 45000;
 
 export const CHALLENGES = {
-  blink: { label: 'Blink', hint: 'Close both eyes fully, then open them' },
+  blink: { label: 'Blink', hint: 'Close both eyes for a moment, then open them' },
   turnLeft: { label: 'Turn left', hint: 'Turn your head to your left' },
   turnRight: { label: 'Turn right', hint: 'Turn your head to your right' },
   smile: { label: 'Smile', hint: 'Give a clear smile' },
@@ -62,21 +64,47 @@ export function headYaw(landmarks) {
   return (ratio - 0.5) * 100;
 }
 
-/** Tracks an open-eye baseline and reports true on the frame a full blink completes. */
+/**
+ * Learns the person's open-eye EAR from recent frames (80th percentile, so a
+ * half-closed frame doesn't drag it down) and reports true on the frame a blink
+ * completes. Relative thresholds work for small or hooded eyes, and a single
+ * closed frame is enough, which matters at the low frame rates of tablets.
+ */
 export function createBlinkTracker() {
-  let open = 0;
+  const history = [];
+  let baseline = 0;
   let closed = false;
-  return (ear) => {
-    if (!open) open = ear;
-    if (ear > open * 0.85) open = open * 0.9 + ear * 0.1;
-    if (!closed && ear < open * T.blinkDrop) {
-      closed = true;
-    } else if (closed && ear > open * 0.88) {
-      closed = false;
-      return true;
-    }
-    return false;
+  return {
+    update(ear) {
+      if (!closed) {
+        history.push(ear);
+        if (history.length > 30) history.shift();
+        const sorted = [...history].sort((a, b) => a - b);
+        baseline = sorted[Math.floor(sorted.length * 0.8)];
+      }
+      if (history.length < 6) return false;
+      if (!closed && ear < baseline * T.blinkClose) {
+        closed = true;
+      } else if (closed && ear > baseline * T.blinkOpen) {
+        closed = false;
+        return true;
+      }
+      return false;
+    },
+    get baseline() {
+      return history.length < 6 ? 0 : baseline;
+    },
+    get closed() {
+      return closed;
+    },
   };
+}
+
+/** Median of a small array. */
+export function median(values) {
+  const s = [...values].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
 }
 
 const SAMPLE = 96;
@@ -223,10 +251,10 @@ export function instructionFor({ faceCount, metrics, criteria, stage, challenge,
   if (failed('light')) return metrics.luma < T.lumaMin ? 'Find more light on your face' : 'Too bright. Avoid direct light behind or on you';
   if (failed('sharp')) return 'Image is blurry. Hold still or wipe the lens';
   if (stage === 'capture') {
-    if (Math.abs(metrics.yaw) > T.yawFront) return 'Look straight at the camera';
+    if (Math.abs(metrics.yaw) > T.yawFront) return 'Face the screen naturally';
     if (failed('steady')) return 'Hold still while we capture';
     return 'Capturing face samples. Hold still';
   }
-  if (challenge && !armed) return 'Look straight at the camera';
+  if (challenge && !armed) return challenge.key === 'smile' ? 'Relax your face first' : 'Face the screen naturally';
   return challenge ? challenge.hint : '';
 }

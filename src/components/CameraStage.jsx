@@ -3,8 +3,24 @@ const fmt = (ms) => {
   return `0:${String(s).padStart(2, '0')}`;
 };
 
+/** Live eye openness against the learned open-eye level, so people can see a blink register. */
+function EyeMeter({ metrics }) {
+  const scale = metrics.earBaseline * 1.25;
+  const pct = (v) => `${Math.max(0, Math.min(100, (v / scale) * 100))}%`;
+  return (
+    <div className="eyemeter" aria-hidden="true">
+      <span className="eyemeter__label">{metrics.earClosed ? 'Closed' : 'Eyes'}</span>
+      <span className="eyemeter__track">
+        <span className={`eyemeter__fill${metrics.earClosed ? ' eyemeter__fill--closed' : ''}`} style={{ width: pct(metrics.ear) }} />
+        <span className="eyemeter__mark" style={{ left: pct(metrics.earBaseline * 0.8) }} />
+      </span>
+    </div>
+  );
+}
+
 export default function CameraStage({ videoRef, overlayRef, state, idleTitle, idleText }) {
-  const { phase, message, remaining, stage, samples, samplesNeeded } = state;
+  const { phase, message, remaining, stage, samples, samplesNeeded, metrics, challenges } = state;
+  const blinkActive = challenges.some((c) => c.active && c.key === 'blink');
   const live = phase === 'running';
   const tone = phase === 'passed' ? 'ok' : phase === 'failed' || phase === 'error' ? 'bad' : 'neutral';
 
@@ -53,9 +69,10 @@ export default function CameraStage({ videoRef, overlayRef, state, idleTitle, id
               </span>
               <span className={`chip chip--time${remaining < 10000 ? ' chip--low' : ''}`}>{fmt(remaining)}</span>
             </div>
-            <p className="stage__prompt" aria-live="polite">
-              {message}
-            </p>
+            <div className="stage__prompt">
+              <p aria-live="polite">{message}</p>
+              {blinkActive && metrics && metrics.earBaseline > 0 && <EyeMeter metrics={metrics} />}
+            </div>
           </>
         )}
         {phase === 'passed' && (
