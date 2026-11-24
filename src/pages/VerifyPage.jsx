@@ -6,7 +6,7 @@ import { randomChallenges } from '../lib/liveness';
 import { MATCH_THRESHOLD, rankMatches, similarity } from '../lib/registry';
 import { useLivenessSession } from '../lib/useLivenessSession';
 
-const SAMPLES = 4;
+const SAMPLES = 3;
 const SCALE_MAX = 1; // distance axis shown on the match bar
 
 export default function VerifyPage({ registry, navigate }) {

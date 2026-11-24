@@ -63,18 +63,16 @@ export function CriteriaList({ criteria, metrics, phase }) {
       {running && metrics && (
         <dl className="readouts mono">
           <div>
-            <dt>EAR</dt>
-            <dd>{metrics.ear.toFixed(2)}</dd>
+            <dt>Eyes</dt>
+            <dd>{metrics.blinkReady ? `${Math.round(metrics.openness * 100)}%` : '—'}</dd>
           </div>
           <div>
             <dt>Yaw</dt>
-            <dd>
-              {Math.abs(metrics.yaw) < 1 ? '0°' : `${Math.round(Math.abs(metrics.yaw))}° ${metrics.yaw > 0 ? 'L' : 'R'}`}
-            </dd>
+            <dd>{metrics.calibrated ? `${Math.round(Math.abs(metrics.yaw))}°${Math.abs(metrics.yaw) < 1 ? '' : metrics.yaw > 0 ? ' L' : ' R'}` : '—'}</dd>
           </div>
           <div>
-            <dt>Detector</dt>
-            <dd>{metrics.confidence.toFixed(2)}</dd>
+            <dt>Pitch</dt>
+            <dd>{metrics.calibrated ? `${Math.round(Math.abs(metrics.pitch))}°${Math.abs(metrics.pitch) < 1 ? '' : metrics.pitch > 0 ? ' U' : ' D'}` : '—'}</dd>
           </div>
           <div>
             <dt>FPS</dt>

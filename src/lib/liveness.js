@@ -8,26 +8,28 @@ export const T = {
   lumaMin: 60, // mean face luminance, 0-255
   lumaMax: 215,
   sharpMin: 22, // Laplacian variance of the face crop
-  motionMax: 0.035, // per-frame movement as a share of face width
-  yawTurn: 18, // degrees needed for a head-turn challenge
-  yawFront: 10, // degrees allowed for a frontal pose
+  motionMax: 0.5, // movement in face widths per second (per second, so low frame rates aren't penalised)
+  yawFront: 12, // degrees from the resting pose allowed for a frontal capture
+  pitchFront: 15,
   smile: 0.75, // "happy" expression probability
-  blinkClose: 0.8, // EAR below this share of the open-eye baseline counts as closed
-  blinkOpen: 0.9, // ...and back above this share counts as reopened
-  yawBaseMax: 25, // most off-axis resting pose accepted (side-mounted tablet cameras)
+  blinkClose: 0.84, // eye openness (1 = your normal open eyes) that counts as closed
+  blinkOpen: 0.92, // ...and that counts as reopened
+  poseBaseMax: 25, // most off-axis resting pose accepted (cameras beside or above the screen)
+  circleMin: 8, // degrees away from the resting pose before a direction counts
+  circleSectors: 8, // directions around the circle
+  circleNeed: 6, // directions that must be visited
   livePass: 80, // liveness score needed to pass
 };
 
-export const SESSION_MS = 45000;
+export const SESSION_MS = 60000;
 
 export const CHALLENGES = {
   blink: { label: 'Blink', hint: 'Close both eyes for a moment, then open them' },
-  turnLeft: { label: 'Turn left', hint: 'Turn your head to your left' },
-  turnRight: { label: 'Turn right', hint: 'Turn your head to your right' },
+  circle: { label: 'Head circle', hint: 'Slowly move your head in a full circle' },
   smile: { label: 'Smile', hint: 'Give a clear smile' },
 };
 
-export const ENROLL_CHALLENGES = ['blink', 'turnLeft', 'turnRight'];
+export const ENROLL_CHALLENGES = ['blink', 'circle'];
 
 /** Two random challenges, in random order, so a recorded video can't anticipate them. */
 export function randomChallenges(count = 2) {
@@ -65,37 +67,135 @@ export function headYaw(landmarks) {
 }
 
 /**
- * Learns the person's open-eye EAR from recent frames (80th percentile, so a
- * half-closed frame doesn't drag it down) and reports true on the frame a blink
- * completes. Relative thresholds work for small or hooded eyes, and a single
- * closed frame is enough, which matters at the low frame rates of tablets.
+ * Approximate head pitch from where the nose tip sits between the eyes and the
+ * chin. Only meaningful relative to the person's resting value; a larger number
+ * means the head tilted further up.
+ */
+export function headPitch(landmarks) {
+  const p = landmarks.positions;
+  const eyeY = p.slice(36, 48).reduce((sum, pt) => sum + pt.y, 0) / 12;
+  const ratio = (p[30].y - eyeY) / (p[8].y - eyeY || 1);
+  return -ratio * 240;
+}
+
+let eyeCanvas = null;
+let eyeCtx = null;
+
+/**
+ * Grey-level contrast around both eyes. An open eye shows white sclera and a dark
+ * iris; a closed one is mostly skin, so contrast falls even when the 68 landmark
+ * points barely move, which is common for small faces on tablet cameras.
+ */
+export function eyeContrast(video, landmarks) {
+  if (!eyeCanvas) {
+    eyeCanvas = document.createElement('canvas');
+    eyeCanvas.width = 32;
+    eyeCanvas.height = 16;
+    eyeCtx = eyeCanvas.getContext('2d', { willReadFrequently: true });
+  }
+  const p = landmarks.positions;
+  let total = 0;
+  [p.slice(36, 42), p.slice(42, 48)].forEach((eye) => {
+    const xs = eye.map((pt) => pt.x);
+    const ys = eye.map((pt) => pt.y);
+    const w = Math.max(...xs) - Math.min(...xs);
+    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+    const cy = (Math.max(...ys) + Math.min(...ys)) / 2;
+    const bw = w * 1.3;
+    const bh = bw / 2;
+    eyeCtx.drawImage(video, cx - bw / 2, cy - bh / 2, bw, bh, 0, 0, 32, 16);
+    const { data } = eyeCtx.getImageData(0, 0, 32, 16);
+    let sum = 0;
+    let sq = 0;
+    const n = data.length / 4;
+    for (let i = 0; i < data.length; i += 4) {
+      const g = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+      sum += g;
+      sq += g * g;
+    }
+    const mean = sum / n;
+    total += Math.sqrt(Math.max(0, sq / n - mean * mean));
+  });
+  return total / 2;
+}
+
+const p80 = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length * 0.8)];
+
+/**
+ * Blink detector. It learns the person's normal open-eye shape (EAR) and eye
+ * contrast from recent frames (80th percentile, so half-closed frames don't drag
+ * it down) and fuses them into one "openness" where 1 means normal open eyes.
+ * A single frame below T.blinkClose then one above T.blinkOpen is a blink, which
+ * keeps working at the low frame rates of tablets.
  */
 export function createBlinkTracker() {
-  const history = [];
-  let baseline = 0;
+  const earHist = [];
+  const conHist = [];
+  let earBase = 0;
+  let conBase = 0;
+  let openness = 1;
   let closed = false;
+  const ready = () => earHist.length >= 6;
   return {
-    update(ear) {
-      if (!closed) {
-        history.push(ear);
-        if (history.length > 30) history.shift();
-        const sorted = [...history].sort((a, b) => a - b);
-        baseline = sorted[Math.floor(sorted.length * 0.8)];
+    update(ear, contrast) {
+      if (ready()) {
+        const earPart = ear / earBase;
+        openness = conBase > 1 ? 0.5 * earPart + 0.5 * (contrast / conBase) : earPart;
       }
-      if (history.length < 6) return false;
-      if (!closed && ear < baseline * T.blinkClose) {
+      if (!closed && (!ready() || openness >= T.blinkClose)) {
+        earHist.push(ear);
+        conHist.push(contrast);
+        if (earHist.length > 30) {
+          earHist.shift();
+          conHist.shift();
+        }
+        earBase = p80(earHist);
+        conBase = p80(conHist);
+      }
+      if (!ready()) return false;
+      if (!closed && openness < T.blinkClose) {
         closed = true;
-      } else if (closed && ear > baseline * T.blinkOpen) {
+      } else if (closed && openness > T.blinkOpen) {
         closed = false;
         return true;
       }
       return false;
     },
-    get baseline() {
-      return history.length < 6 ? 0 : baseline;
+    get ready() {
+      return ready();
+    },
+    get openness() {
+      return openness;
     },
     get closed() {
       return closed;
+    },
+  };
+}
+
+/**
+ * Head-circle challenge. Takes yaw and pitch relative to the resting pose and
+ * marks which of the directions around the circle the head has pointed at.
+ * Works on head rotation, not position, so sliding a photo around doesn't count.
+ * Directions are in screen space of the mirrored preview: right = +x, down = +y.
+ */
+export function createCircleTracker() {
+  const visited = new Array(T.circleSectors).fill(false);
+  return {
+    update(yaw, pitch) {
+      const x = -yaw; // yaw is positive to the person's left, which is screen left in the mirror
+      const y = -pitch;
+      if (Math.hypot(x, y) >= T.circleMin) {
+        const angle = (Math.atan2(y, x) + Math.PI * 2) % (Math.PI * 2);
+        visited[Math.floor(angle / ((Math.PI * 2) / T.circleSectors)) % T.circleSectors] = true;
+      }
+      return visited.filter(Boolean).length >= T.circleNeed;
+    },
+    get visited() {
+      return visited.slice();
+    },
+    get count() {
+      return visited.filter(Boolean).length;
     },
   };
 }
@@ -186,7 +286,10 @@ export function frameStill(video) {
 
 const pct = (v) => `${Math.round(v * 100)}%`;
 
-/** The passive criteria shown in the checklist. `gate` ones must pass before challenges count. */
+/**
+ * The passive criteria shown in the checklist. `gate` ones must pass for a challenge
+ * to count; all of them must pass for the frontal capture.
+ */
 export function evaluateCriteria(faceCount, m) {
   const has = Boolean(m);
   return [
@@ -212,7 +315,7 @@ export function evaluateCriteria(faceCount, m) {
       ok: has && m.offset <= T.centerMax,
       value: has ? `${pct(m.offset)} off` : '—',
       range: `≤ ${pct(T.centerMax)}`,
-      gate: true,
+      gate: false,
     },
     {
       key: 'light',
@@ -228,33 +331,36 @@ export function evaluateCriteria(faceCount, m) {
       ok: has && m.sharpness >= T.sharpMin,
       value: has ? `${Math.round(m.sharpness)} var` : '—',
       range: `≥ ${T.sharpMin}`,
-      gate: true,
+      gate: false,
     },
     {
       key: 'steady',
       label: 'Holding still',
       ok: has && m.motion <= T.motionMax,
-      value: has ? `${(m.motion * 100).toFixed(1)}%/frame` : '—',
-      range: `≤ ${(T.motionMax * 100).toFixed(1)}%`,
+      value: has ? `${Math.round(m.motion * 100)}%/s` : '—',
+      range: `≤ ${Math.round(T.motionMax * 100)}%/s`,
       gate: false,
     },
   ];
 }
 
 /** One plain instruction for the person in front of the camera. */
-export function instructionFor({ faceCount, metrics, criteria, stage, challenge, armed }) {
+export function instructionFor({ faceCount, metrics, criteria, stage, challenge, armed, circleCount = 0 }) {
   if (faceCount === 0) return 'Place your face inside the oval';
   if (faceCount > 1) return 'Only one person should be in view';
   const failed = (key) => !criteria.find((c) => c.key === key).ok;
   if (failed('size')) return metrics.size < T.sizeMin ? 'Move a little closer' : 'Move back a little';
-  if (failed('center')) return 'Center your face in the oval';
   if (failed('light')) return metrics.luma < T.lumaMin ? 'Find more light on your face' : 'Too bright. Avoid direct light behind or on you';
-  if (failed('sharp')) return 'Image is blurry. Hold still or wipe the lens';
   if (stage === 'capture') {
-    if (Math.abs(metrics.yaw) > T.yawFront) return 'Face the screen naturally';
-    if (failed('steady')) return 'Hold still while we capture';
+    if (failed('center')) return 'Center your face in the oval';
+    if (failed('sharp')) return 'Image is blurry. Hold still or wipe the lens';
+    if (Math.abs(metrics.yaw) > T.yawFront || Math.abs(metrics.pitch) > T.pitchFront) return 'Face the screen like you did at the start';
+    if (metrics.closed) return 'Keep your eyes open';
+    if (failed('steady')) return 'Hold still for a moment';
     return 'Capturing face samples. Hold still';
   }
-  if (challenge && !armed) return challenge.key === 'smile' ? 'Relax your face first' : 'Face the screen naturally';
-  return challenge ? challenge.hint : '';
+  if (!challenge) return '';
+  if (!armed) return challenge.key === 'smile' ? 'Relax your face first' : 'Face the screen naturally';
+  if (challenge.key === 'circle' && circleCount > 0) return `Keep circling slowly · ${circleCount} of ${T.circleNeed} directions`;
+  return challenge.hint;
 }

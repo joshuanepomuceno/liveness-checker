@@ -6,7 +6,7 @@ import { CHALLENGES, ENROLL_CHALLENGES } from '../lib/liveness';
 import { MATCH_THRESHOLD, rankMatches } from '../lib/registry';
 import { useLivenessSession } from '../lib/useLivenessSession';
 
-const SAMPLES = 6;
+const SAMPLES = 5;
 
 export default function EnrollPage({ registry, navigate }) {
   const videoRef = useRef(null);
@@ -49,7 +49,7 @@ export default function EnrollPage({ registry, navigate }) {
           overlayRef={overlayRef}
           state={state}
           idleTitle="Add a face to the registry"
-          idleText="Enter a name, then start the scan. You will blink and turn your head so we know it is a live person."
+          idleText="Enter a name, then start the scan. You will blink and move your head in a circle so we know it is a live person."
         />
         <LivenessMeter score={state.score} parts={state.parts} phase={state.phase} />
       </div>
