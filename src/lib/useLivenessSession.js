@@ -4,6 +4,9 @@ import {
   SESSION_MS,
   T,
   createBlinkTracker,
+  createCircleTracker,
+  eyeContrast,
+  headPitch,
   evaluateCriteria,
   eyeAspectRatio,
   faceThumbnail,
@@ -20,6 +23,7 @@ const IDLE = {
   criteria: evaluateCriteria(0, null),
   challenges: [],
   score: 0,
+  circle: [],
   parts: { criteria: 0, challenges: 0, capture: 0 },
   metrics: null,
   message: '',
@@ -147,6 +151,7 @@ export function useLivenessSession({ videoRef, overlayRef, samplesNeeded = 5 }) 
       }
 
       const blink = createBlinkTracker();
+      const circle = createCircleTracker();
       const descriptors = [];
       const startedAt = performance.now();
       let idx = 0;
@@ -155,10 +160,10 @@ export function useLivenessSession({ videoRef, overlayRef, samplesNeeded = 5 }) 
       let lastCenter = null;
       let motion = 0;
       let thumbnail = null;
-      // Resting yaw, learned from the first good frames, so a camera mounted
-      // off to the side (tablets) doesn't read as a turned head.
-      const yawSamples = [];
-      let baseYaw = null;
+      // Resting pose, learned from the first good frames, so a camera mounted beside
+      // or above the screen (tablets) doesn't read as a turned or tilted head.
+      const poseSamples = [];
+      let basePose = null;
       let lastTick = 0;
       let fps = 0;
 
@@ -185,6 +190,7 @@ export function useLivenessSession({ videoRef, overlayRef, samplesNeeded = 5 }) 
         if (!r.active) return;
 
         const now = performance.now();
+        const dt = lastTick ? (now - lastTick) / 1000 : 0;
         if (lastTick) fps = fps ? fps * 0.8 + (0.2 * 1000) / (now - lastTick) : 1000 / (now - lastTick);
         lastTick = now;
         const vw = video.videoWidth;
@@ -194,22 +200,29 @@ export function useLivenessSession({ videoRef, overlayRef, samplesNeeded = 5 }) 
         if (face) {
           const box = face.detection.box;
           const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-          if (lastCenter) motion = motion * 0.6 + 0.4 * (Math.hypot(center.x - lastCenter.x, center.y - lastCenter.y) / box.width);
+          if (lastCenter && dt > 0) {
+            const speed = Math.hypot(center.x - lastCenter.x, center.y - lastCenter.y) / box.width / dt;
+            motion = motion * 0.6 + 0.4 * speed;
+          }
           lastCenter = center;
           const ear = eyeAspectRatio(face.landmarks);
           const rawYaw = headYaw(face.landmarks);
-          const blinked = blink.update(ear);
+          const rawPitch = headPitch(face.landmarks);
+          const blinked = blink.update(ear, eyeContrast(video, face.landmarks));
           metrics = {
             blinked,
             size: box.width / vw,
             offset: Math.hypot(center.x / vw - 0.5, center.y / vh - 0.5),
             ...regionStats(video, box),
             ear,
-            earBaseline: blink.baseline,
-            earClosed: blink.closed,
+            openness: blink.openness,
+            blinkReady: blink.ready,
+            closed: blink.closed,
             rawYaw,
-            yaw: rawYaw - (baseYaw ?? 0),
-            calibrated: baseYaw !== null,
+            rawPitch,
+            yaw: rawYaw - (basePose ? basePose.yaw : 0),
+            pitch: rawPitch - (basePose ? basePose.pitch : 0),
+            calibrated: basePose !== null,
             happy: face.expressions ? face.expressions.happy : null,
             confidence: face.detection.score,
             motion,
@@ -222,27 +235,31 @@ export function useLivenessSession({ videoRef, overlayRef, samplesNeeded = 5 }) 
         const criteria = evaluateCriteria(faces.length, metrics);
         const gateOk = criteria.every((c) => !c.gate || c.ok);
         const allOk = criteria.every((c) => c.ok);
-        if (baseYaw === null && metrics && gateOk) {
-          yawSamples.push(metrics.rawYaw);
-          if (yawSamples.length >= 8) {
-            baseYaw = Math.max(-T.yawBaseMax, Math.min(T.yawBaseMax, median(yawSamples)));
-            metrics.yaw = metrics.rawYaw - baseYaw;
+        if (basePose === null && metrics && gateOk) {
+          poseSamples.push({ yaw: metrics.rawYaw, pitch: metrics.rawPitch });
+          if (poseSamples.length >= 8) {
+            const clamp = (v) => Math.max(-T.poseBaseMax, Math.min(T.poseBaseMax, v));
+            const restYaw = clamp(median(poseSamples.map((s) => s.yaw)));
+            const restPitch = median(poseSamples.map((s) => s.pitch));
+            basePose = { yaw: restYaw, pitch: restPitch };
+            metrics.yaw = metrics.rawYaw - restYaw;
+            metrics.pitch = metrics.rawPitch - restPitch;
             metrics.calibrated = true;
           }
         }
 
         if (stage === 'challenge' && metrics && gateOk) {
           const key = list[idx].key;
-          // Blinks need no pose check. Turns start from the resting pose, smiles from a relaxed face.
+          // Blinks need no pose check. The circle starts once the resting pose is known, smiles from a relaxed face.
           const neutral =
             key === 'blink' ||
-            (key === 'smile' ? metrics.happy !== null && metrics.happy < 0.5 : metrics.calibrated && Math.abs(metrics.yaw) < T.yawFront);
+            (key === 'circle' && metrics.calibrated) ||
+            (key === 'smile' && metrics.happy !== null && metrics.happy < 0.5);
           if (!armed && neutral) armed = true;
           if (armed) {
             const hit =
               (key === 'blink' && metrics.blinked) ||
-              (key === 'turnLeft' && metrics.yaw > T.yawTurn) ||
-              (key === 'turnRight' && metrics.yaw < -T.yawTurn) ||
+              (key === 'circle' && circle.update(metrics.yaw, metrics.pitch)) ||
               (key === 'smile' && metrics.happy !== null && metrics.happy > T.smile);
             if (hit) {
               list[idx].done = true;
@@ -251,7 +268,15 @@ export function useLivenessSession({ videoRef, overlayRef, samplesNeeded = 5 }) 
               if (idx >= list.length) stage = 'capture';
             }
           }
-        } else if (stage === 'capture' && metrics && allOk && Math.abs(metrics.yaw) < T.yawFront && !metrics.earClosed && face.descriptor) {
+        } else if (
+          stage === 'capture' &&
+          metrics &&
+          allOk &&
+          Math.abs(metrics.yaw) < T.yawFront &&
+          Math.abs(metrics.pitch) < T.pitchFront &&
+          !metrics.closed &&
+          face.descriptor
+        ) {
           descriptors.push(Array.from(face.descriptor));
           if (descriptors.length === Math.ceil(samplesNeeded / 2)) thumbnail = faceThumbnail(video, face.detection.box);
         }
@@ -276,9 +301,10 @@ export function useLivenessSession({ videoRef, overlayRef, samplesNeeded = 5 }) 
           score,
           parts,
           metrics,
+          circle: circle.visited,
           remaining: Math.max(0, SESSION_MS - elapsed),
           samples: descriptors.length,
-          message: instructionFor({ faceCount: faces.length, metrics, criteria, stage, challenge: list[idx], armed }),
+          message: instructionFor({ faceCount: faces.length, metrics, criteria, stage, challenge: list[idx], armed, circleCount: circle.count }),
         };
 
         if (descriptors.length >= samplesNeeded) {

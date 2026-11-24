@@ -4,8 +4,8 @@ A lightweight face recognition site with a live liveness meter. Built with React
 
 ## Modules
 
-- **Add face** (`#enroll`): enter a name, pass the liveness check, and save 6 face samples (128-d descriptors and a thumbnail) to the registry. Warns you if the face already matches someone enrolled.
-- **Verify** (`#verify`): pass a liveness check with **2 random challenges**, then compare the live face against everyone in the registry. Shows the verdict, the Euclidean distance against the 0.50 limit, and the closest candidates.
+- **Add face** (`#enroll`): enter a name, pass the liveness check (blink, then a head circle), and save 5 face samples (128-d descriptors and a thumbnail) to the registry. Warns you if the face already matches someone enrolled.
+- **Verify** (`#verify`): pass a liveness check with **2 random challenges** (from blink, head circle and smile), then compare the live face against everyone in the registry. Shows the verdict, the Euclidean distance against the 0.50 limit, and the closest candidates.
 - **Registry** (`#registry`): view and remove enrolled people.
 
 ## Liveness criteria
@@ -14,13 +14,15 @@ The meter scores 0–100 and passes at **80**:
 
 | Part | Points | What is checked |
 | --- | --- | --- |
-| Passive criteria | 40 | One face in view · face width 20–70% of frame · centre within 18% · mean face luminance 60–215 · Laplacian sharpness ≥ 22 · movement ≤ 3.5% of face width per frame |
-| Active challenges | 50 | Blink (eye aspect ratio drops below 80% of your learned open-eye level, then recovers to 90%) · turn left / right (≥ 18° from your resting pose) · smile (expression ≥ 0.75). Turns start from your resting pose and smiles from a relaxed face. |
-| Frontal capture | 10 | Samples taken only while every criterion passes, eyes are open and the head is within 10° of the resting pose |
+| Passive criteria | 40 | One face in view · face width 20–70% of frame · centre within 18% · mean face luminance 60–215 · Laplacian sharpness ≥ 22 · movement ≤ 0.5 face widths per second |
+| Active challenges | 50 | **Blink**: eye openness, a blend of eye shape (EAR) and eye-area contrast relative to your own open eyes, drops below 84% and recovers above 92% · **Head circle**: your head's yaw and pitch point in at least 6 of 8 directions, each at least 8° from your resting pose · **Smile**: expression ≥ 0.75 |
+| Frontal capture | 10 | Samples taken only while every criterion passes, eyes are open and the head is within 12° yaw and 15° pitch of the resting pose |
 
-The resting pose is learned from the first good frames (up to 25° off-axis), so a camera mounted beside the screen, as on most tablets, doesn't count as a turned head. During the blink challenge an eye-openness bar shows the live reading against the blink line, and the readouts include the detection frame rate (FPS).
+Only face count, distance and lighting must pass for a challenge to count. Centring, sharpness and stillness are required for the frontal capture.
 
-A session times out after 45 seconds. All thresholds live in `src/lib/liveness.js` (`T`) and the match limit in `src/lib/registry.js` (`MATCH_THRESHOLD`).
+The resting pose is learned from the first good frames (yaw up to 25° off-axis), so a camera beside or above the screen, as on most tablets, doesn't count as a turned head. The head circle tracks rotation, not position, so sliding a photo around doesn't pass it. During the blink step an eye-openness bar shows the live reading against the blink line, and during the circle a ring lights up each direction as you reach it. The readouts show eye openness, yaw, pitch and the detection frame rate (FPS).
+
+A session times out after 60 seconds. All thresholds live in `src/lib/liveness.js` (`T`) and the match limit in `src/lib/registry.js` (`MATCH_THRESHOLD`).
 
 ## Run it
 
