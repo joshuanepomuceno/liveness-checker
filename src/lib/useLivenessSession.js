@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CHALLENGES,
+  BLINK_HELP_MS,
   SESSION_MS,
   T,
   createBlinkTracker,
@@ -23,6 +24,7 @@ const IDLE = {
   criteria: evaluateCriteria(0, null),
   challenges: [],
   score: 0,
+  canSwap: false,
   circle: [],
   parts: { criteria: 0, challenges: 0, capture: 0 },
   metrics: null,
@@ -157,6 +159,17 @@ export function useLivenessSession({ videoRef, overlayRef, samplesNeeded = 5 }) 
       let idx = 0;
       let stage = 'challenge';
       let armed = false;
+      let challengeStartedAt = null; // set on the first good frame, so model warm-up doesn't count
+      // Swap a stuck blink for a challenge not already in the list (smile, else circle).
+      r.swap = () => {
+        if (stage !== 'challenge' || !list[idx] || list[idx].key !== 'blink') return;
+        const used = new Set(list.map((c) => c.key));
+        const next = ['smile', 'circle'].find((k) => !used.has(k));
+        if (!next) return;
+        list[idx] = { key: next, ...CHALLENGES[next], done: false };
+        armed = false;
+        challengeStartedAt = performance.now();
+      };
       let lastCenter = null;
       let motion = 0;
       let thumbnail = null;
@@ -249,6 +262,7 @@ export function useLivenessSession({ videoRef, overlayRef, samplesNeeded = 5 }) 
         }
 
         if (stage === 'challenge' && metrics && gateOk) {
+          if (challengeStartedAt === null) challengeStartedAt = now;
           const key = list[idx].key;
           // Blinks need no pose check. The circle starts once the resting pose is known, smiles from a relaxed face.
           const neutral =
@@ -265,6 +279,7 @@ export function useLivenessSession({ videoRef, overlayRef, samplesNeeded = 5 }) 
               list[idx].done = true;
               idx += 1;
               armed = false;
+              challengeStartedAt = now;
               if (idx >= list.length) stage = 'capture';
             }
           }
@@ -293,7 +308,16 @@ export function useLivenessSession({ videoRef, overlayRef, samplesNeeded = 5 }) 
         const score = Math.round(parts.criteria + parts.challenges + parts.capture);
         const elapsed = now - startedAt;
 
+        const used = new Set(list.map((c) => c.key));
+        const canSwap =
+          stage === 'challenge' &&
+          list[idx] &&
+          list[idx].key === 'blink' &&
+          challengeStartedAt !== null &&
+          now - challengeStartedAt > BLINK_HELP_MS &&
+          ['smile', 'circle'].some((k) => !used.has(k));
         const frame = {
+          canSwap,
           phase: 'running',
           stage,
           criteria,
@@ -331,5 +355,9 @@ export function useLivenessSession({ videoRef, overlayRef, samplesNeeded = 5 }) 
     [stop, videoRef, overlayRef, samplesNeeded],
   );
 
-  return { state, start, reset, stop };
+  const swap = useCallback(() => {
+    if (run.current && run.current.swap) run.current.swap();
+  }, []);
+
+  return { state, start, reset, stop, swap };
 }

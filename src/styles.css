@@ -415,6 +415,28 @@ p {
 .stage__prompt p {
   margin: 0;
 }
+.stage__help {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgb(232 238 241 / 0.15);
+  font-size: 0.82rem;
+  color: rgb(232 238 241 / 0.8);
+}
+.stage__help-btn {
+  appearance: none;
+  padding: 6px 12px;
+  border-radius: var(--r-sm);
+  border: 0;
+  background: var(--cam-ok);
+  color: #062327;
+  font: 600 0.82rem/1.2 var(--font-body);
+  cursor: pointer;
+}
 .eyemeter {
   display: flex;
   align-items: center;

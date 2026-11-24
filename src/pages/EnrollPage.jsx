@@ -11,7 +11,7 @@ const SAMPLES = 5;
 export default function EnrollPage({ registry, navigate }) {
   const videoRef = useRef(null);
   const overlayRef = useRef(null);
-  const { state, start, reset } = useLivenessSession({ videoRef, overlayRef, samplesNeeded: SAMPLES });
+  const { state, start, reset, swap } = useLivenessSession({ videoRef, overlayRef, samplesNeeded: SAMPLES });
   const [name, setName] = useState('');
   const [saved, setSaved] = useState(null);
 
@@ -48,6 +48,7 @@ export default function EnrollPage({ registry, navigate }) {
           videoRef={videoRef}
           overlayRef={overlayRef}
           state={state}
+          onSwap={swap}
           idleTitle="Add a face to the registry"
           idleText="Enter a name, then start the scan. You will blink and move your head in a circle so we know it is a live person."
         />
